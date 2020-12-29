@@ -15,7 +15,39 @@ def get_html(url):
   return html
 
 
-def parse_html(html):
+def get_game_page_data(page_num, game_num, url, datum):
+  """ Fetches HTML of a particular game page and parses data from it """
+
+  html = get_html(url + '/details')
+  lines = html.split('\n')
+  print('\t[%d - %d] getting game details: %s' % (page_num, game_num, url))
+
+  start_parse_additional_info = False
+  start_parse_esrb_rating = False
+  start_parse_developer = False
+  start_parse_genres = False
+
+  for line in lines:
+    if '<div class="product_details">' in line:
+      start_parse_additional_info = True
+    elif '<th scope="row">Rating:</th>' in line and start_parse_additional_info:
+      start_parse_esrb_rating = True
+    elif '<td>' in line and start_parse_esrb_rating:
+      datum['esrb_rating'] = line.split('<td>')[1].split('</td>')[0]
+      start_parse_esrb_rating = False
+    elif '<th scope="row">Developer:</th>' in line and start_parse_additional_info:
+      start_parse_developer = True
+    elif '<td>' in line and start_parse_developer:
+      datum['developers'] = line.split('<td>')[1].split('</td>')[0].split(",")
+      start_parse_developer = False
+    elif '<th scope="row">Genre(s):</th>' in line and start_parse_additional_info:
+      start_parse_genres = True
+    elif '<td>' not in line and start_parse_genres:
+      datum['genres'] = [x.strip() for x in line.split('</td>')[0].split(',')]
+      start_parse_genres = False
+
+
+def parse_html(page_num, base_url, html):
   """ Parses the input HTML for Pokemon Game ratings"""
 
   lines = html.split('\n')
@@ -24,6 +56,8 @@ def parse_html(html):
   start_parse_table = False
   start_parse_meta_score_title_platform = False
   start_parse_date = False
+
+  game_num = 1
 
   for line in lines:
     if '<table class="credits company_credits">' in line:
@@ -41,7 +75,10 @@ def parse_html(html):
     elif '<a href="' in line and start_parse_meta_score_title_platform:
       datum['title'] = line.split('">')[1].split(' (')[0]
       datum['platform'] = line.split(' (')[1].split(')</a>')[0]
+      datum['link'] = line.split('<a href="')[1].split('">')[0]
+      get_game_page_data(page_num, game_num, base_url + datum['link'], datum)
       start_parse_meta_score_title_platform = False
+      game_num = game_num + 1
 
     elif '<td class="year">' in line:
       start_parse_date = True
@@ -63,24 +100,25 @@ def write_csv(data):
   """ Writes a CSV file of the ratings data """
 
   with open('data.csv', 'w') as file:
-    writer = csv.DictWriter(file, fieldnames=['meta_score', 'title', 'platform', 'date', 'user_score'])
+    writer = csv.DictWriter(file, fieldnames=['meta_score', 'title', 'platform', 'date', 'user_score', 'link', 'esrb_rating', 'developers', 'genres'])
     writer.writeheader()
     for row in data:
       writer.writerow(row)
 
 
 def main():
-  base_url = 'https://www.metacritic.com/company/nintendo?filter-options=games&num_items=100&sort_options=date&page='
+  base_url = 'https://www.metacritic.com/'
+  game_list_url = 'https://www.metacritic.com/company/nintendo?filter-options=games&num_items=100&sort_options=date&page='
   num_pages = 11
 
   data = []
 
   for page_num in range(0, num_pages):
-    url = base_url + str(page_num)
+    url = game_list_url + str(page_num)
     html = get_html(url)
     print('Got HTML from %s. Parsing...' % url)
 
-    page_data = parse_html(html)
+    page_data = parse_html(page_num + 1, base_url, html)
     print('Got %d game ratings\n' % len(page_data))
 
     data.extend(page_data)
